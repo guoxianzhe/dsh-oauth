@@ -66,6 +66,14 @@ export async function fixture(options = {}) {
       else if (message.method === 'tools/list') result = { tools: [{ name: 'echo', description: 'Echo text', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }, { name: 'write', inputSchema: { type: 'object', properties: {} } }] };
       else if (message.method === 'tools/call') {
         if (message.params.name === 'write') writes++;
+        if (message.params.arguments?.text === 'protocol-guidance') return send(200, {
+          jsonrpc: '2.0', id: message.id, error: { code: -32001, message: 'private exception text', data: {
+            reasonCode: 'CONNECTION_AUTHORIZATION_INACTIVE', title: 'Authorize this client',
+            steps: ['Confirm the requested read capability.'], traceId: 'fixture-trace',
+            nextAction: { type: 'AUTHORIZE', label: 'Open authorization', url: base + '/connection/connections?consumerId=example' },
+            secret: 'must-not-be-forwarded',
+          } },
+        });
         result = message.params.name === 'echo' && message.params.arguments?.text === 'request-guidance'
           ? { isError: true, content: [{ type: 'text', text: 'Explicit read authorization is required.' }], structuredContent: { guidance: 'Authorize read scope in the service console.', receipt: 'fixture-receipt' } }
           : { content: [{ type: 'text', text: message.params.arguments?.text ?? 'written' }] };
