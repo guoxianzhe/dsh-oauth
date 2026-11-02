@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import z from '@deepseek-ai/schemastery';
 import { OAuthConnection } from './oauth.js';
-import { SafeError } from './security.js';
+import { credentialId, failureKind, SafeError } from './security.js';
 
 export const name = 'dsh-oauth';
 export const inject = ['tools', 'credentials'];
@@ -60,6 +60,7 @@ export async function apply(ctx, config) {
   let authorization;
   let disposeFlow;
   let signature;
+  let configurationError;
   let configuring = Promise.resolve();
   let toolDisposers = [];
   const clearTools = () => { for (const dispose of toolDisposers) dispose(); toolDisposers = []; };
@@ -71,7 +72,7 @@ export async function apply(ctx, config) {
       try { return await execute(); }
       catch (error) {
         // No upstream error messages/HTTP bodies: they may contain credentials.
-        throw new SafeError(error instanceof SafeError ? error.message : 'OAuth operation failed. Check the service and plugin configuration; credentials and upstream responses are not logged.');
+        throw new SafeError(error instanceof SafeError ? error.message : `OAuth operation failed (${connection?.phase ?? 'configuration'}/${failureKind(error)}). Check the service and plugin configuration; credentials and upstream responses are not logged.`);
       }
     },
   });
@@ -83,7 +84,7 @@ export async function apply(ctx, config) {
       key: c.key, label: `MCP: ${serverName}`, methods: [{ id: 'oauth', label: 'Sign in with browser' }],
       async run(session) {
         const attempt = await c.startLogin();
-        const abort = () => c.pending?.cancel();
+        const abort = () => { void c.logout().catch(() => { c.status = 'sign_out_failed'; }); };
         session.signal.addEventListener('abort', abort, { once: true });
         try {
           if (session.signal.aborted) abort();
@@ -93,17 +94,24 @@ export async function apply(ctx, config) {
       },
     });
   };
+  const read = value => typeof value?.get === 'function' ? value.get() : value;
   const configure = () => {
-    const snapshot = { serverName, url: config.url, scope: config.scope,
-      authorizationOrigins: [...(config.authorizationOrigins ?? [])],
-      requestTimeoutMs: config.requestTimeoutMs, allowInsecureLoopback: config.allowInsecureLoopback };
+    const snapshot = { serverName, url: read(config.url), scope: read(config.scope),
+      authorizationOrigins: [...(read(config.authorizationOrigins) ?? [])],
+      requestTimeoutMs: read(config.requestTimeoutMs), allowInsecureLoopback: read(config.allowInsecureLoopback) };
     const next = JSON.stringify(snapshot);
     if (next === signature) return configuring;
     signature = next;
     configuring = configuring.then(async () => {
       disposeFlow?.(); disposeFlow = undefined;
       await connection?.dispose(); connection = undefined;
+      configurationError = undefined;
       if (!snapshot.url) return;
+      // Early local candidates used a bare digest, which is not a valid DSH
+      // credential id when it begins with a digit. Remove only this exact
+      // malformed key owned by this configured service; never enumerate secrets.
+      const legacyKey = credentialId(snapshot).replace('/server-', '/');
+      if (/^dsh-oauth\/[0-9]/.test(legacyKey)) await ctx.credentials.deleteRecord(legacyKey);
       const c = new OAuthConnection(snapshot, ctx.credentials);
       connection = c;
       c.onDisconnected = () => { if (connection === c) clearTools(); };
@@ -121,7 +129,7 @@ export async function apply(ctx, config) {
       };
       mountFlow();
       try { await c.connect(); } catch { c.status = 'sign_in_required'; }
-    }).catch(() => { /* Invalid configuration never reaches the network or logs secrets. */ });
+    }).catch(error => { configurationError = failureKind(error); });
     return configuring;
   };
   ctx.inject(['authorization'], inner => {
@@ -131,11 +139,12 @@ export async function apply(ctx, config) {
   ctx.on('settings/document-updated', () => configure(), { global: true });
   ctx.effect(() => async () => { disposeFlow?.(); await configuring; await connection?.dispose(); }, 'dsh-oauth.connection');
   const requireConnection = () => {
+    if (configurationError) throw new SafeError(`Configuration could not be applied (${configurationError}). Check the plugin settings and credential backend.`);
     if (!connection) throw new SafeError('Set the MCP HTTPS URL in this plugin’s settings first.');
     return connection;
   };
   const disposers = [
-    manage('status', 'Read this MCP OAuth connection status; never returns credentials.', () => ({ serverName, status: connection?.status ?? 'not_configured' })),
+    manage('status', 'Read this MCP OAuth connection status; never returns credentials.', () => ({ serverName, status: connection?.status ?? (configurationError ? 'configuration_failed' : 'not_configured') })),
     manage('login', 'Start browser sign-in for this configured MCP service when the user requests it. Return the URL for the human to open; never ask for tokens or passwords.', async () => {
       const c = requireConnection();
       const attempt = await c.startLogin();
