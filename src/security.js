@@ -2,6 +2,11 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 
 export class SafeError extends Error {}
+export function failureKind(error) {
+  const allowed = new Set(['Error', 'TypeError', 'ReferenceError', 'AbortError', 'OperationError',
+    'SdkHttpError', 'OAuthError', 'RegistrationRejectedError', 'InvalidGrantError', 'AuthorizationServerMismatchError']);
+  return allowed.has(error?.name) ? error.name : 'OtherError';
+}
 export class LoginRequired extends SafeError {
   constructor() { super('Browser sign-in required. Start oauth_login or use the DSH credential authorization page.'); }
 }
@@ -18,7 +23,7 @@ export function endpoint(value, allowInsecureLoopback = false) {
 }
 
 export function credentialId(config) {
-  return `dsh-oauth/${createHash('sha256').update(JSON.stringify({
+  return `dsh-oauth/server-${createHash('sha256').update(JSON.stringify({
     name: config.serverName, url: config.url, scope: config.scope ?? '',
     origins: [...config.authorizationOrigins].sort(),
   })).digest('hex')}`;
