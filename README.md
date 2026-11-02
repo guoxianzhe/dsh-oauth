@@ -7,6 +7,8 @@ Package identity: `@guoxianzhe/dsh-oauth` (GitHub repository: `guoxianzhe/dsh-oa
 Always install from the pinned GitHub source, not the unrelated npm package
 `dsh-oauth`. Candidate `v0.1.0-alpha.1` failed a Desktop cold-start test; do not use it.
 The fix is verified against a local Desktop fixture as `v0.1.0-alpha.2`.
+`v0.1.0-alpha.3` additionally preserves bounded JSON-RPC authorization guidance
+with trusted-origin links; raw HTTP errors and unrelated exception data stay hidden.
 See [verification](https://github.com/guoxianzhe/dsh-oauth/blob/main/VALIDATION.md).
 
 Configure an MCP URL, sign in in your browser, and use the service's tools in DSH.
