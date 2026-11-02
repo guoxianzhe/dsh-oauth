@@ -6,7 +6,8 @@ Independently maintained; not an official DeepSeek plugin.
 Package identity: `@guoxianzhe/dsh-oauth` (GitHub repository: `guoxianzhe/dsh-oauth`).
 Always install from the pinned GitHub source, not the unrelated npm package
 `dsh-oauth`. Candidate `v0.1.0-alpha.1` failed a Desktop cold-start test; do not use it.
-The fix is being validated as `v0.1.0-alpha.2`.
+The fix is verified against a local Desktop fixture as `v0.1.0-alpha.2`.
+See [verification](https://github.com/guoxianzhe/dsh-oauth/blob/main/VALIDATION.md).
 
 Configure an MCP URL, sign in in your browser, and use the service's tools in DSH.
 No provider passwords or manually copied bearer tokens belong in plugin settings
@@ -38,6 +39,10 @@ In DSH Desktop, open **Plugins → Add plugin** and enter the checkout's absolut
 directory path. Keep the directory after installation. This GUI path does not
 require switching the chat to Creator mode. Where Plugin Manager is available,
 its `install_bundle` tool accepts the same directory as `target`.
+
+After installing or updating code, save your work, confirm background tasks may
+be interrupted, then use **Harness → Restart** to reload the host modules before
+signing in. Do not interrupt another task without the user's agreement.
 
 There are no install scripts, shell-command executors or bundled service URLs.
 For a reproducible installation, check out a reviewed commit; do not assume an
