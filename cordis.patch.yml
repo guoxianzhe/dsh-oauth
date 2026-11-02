@@ -1,6 +1,6 @@
 - insert:
     - id: dsh-oauth
-      name: dsh-oauth
+      name: "@guoxianzhe/dsh-oauth"
       config:
         serverName: example
         url: ""
