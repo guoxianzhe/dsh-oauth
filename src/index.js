@@ -40,7 +40,13 @@ function remoteDefinition(connection, serverName, tool) {
       try {
       if (tool.execution?.taskSupport === 'required') throw new SafeError('Task-only tools are not supported in this release.');
       const result = await connection.call(tool, args, exec.signal);
-      if (result.isError) throw new SafeError('The MCP tool reported an error. Inspect its receipt before retrying any write.');
+      if (result.isError) {
+        // MCP application errors intentionally carry caller-facing guidance and
+        // receipts. Preserve them; only OAuth/HTTP exception bodies are hidden.
+        const failure = { isError: true, content: result.content.filter(block => block.type === 'text' || block.type === 'resource_link'),
+          ...(result.structuredContent === undefined ? {} : { structuredContent: result.structuredContent }) };
+        throw new SafeError(`MCP tool error: ${JSON.stringify(failure).slice(0, 65536)}`);
+      }
       // Refuse unsupported binary output rather than exposing base64 to the LLM.
       if (result.content.some(block => block.type === 'image' || block.type === 'audio' || block.type === 'resource' && block.resource?.blob)) {
         throw new SafeError('This release supports text, structured data and resource links; binary output is unsupported. The remote call ran: do not replay a write.');
