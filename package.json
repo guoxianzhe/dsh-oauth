@@ -1,6 +1,6 @@
 {
   "name": "@guoxianzhe/dsh-oauth",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "MCP OAuth client for DeepSeek Harness Desktop",
   "type": "module",
   "main": "src/index.js",
