@@ -1,7 +1,28 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
+import { ProtocolError } from '@modelcontextprotocol/client';
 
 export class SafeError extends Error {}
+// Only explicit MCP recovery metadata is caller-facing; never expose HTTP bodies,
+// exception messages, arbitrary error data, or links outside configured origins.
+export function protocolGuidance(error, config) {
+  const data = error?.data;
+  if (!(error instanceof ProtocolError) || error.code !== -32001 || !data ||
+      !/^[A-Z][A-Z0-9_]{0,95}$/.test(data.reasonCode ?? '')) return;
+  const text = value => typeof value === 'string' && value.length <= 1000 && !/[\u0000-\u001f]/.test(value);
+  const action = data.nextAction;
+  if (!text(data.title) || !Array.isArray(data.steps) || data.steps.length > 10 ||
+      !data.steps.every(text) || !text(action?.label) || !text(action?.type)) return;
+  let url;
+  try { url = new URL(action.url); } catch { return; }
+  const origins = new Set([new URL(config.url).origin, ...(config.authorizationOrigins ?? [])]);
+  if (!origins.has(url.origin) || url.username || url.password || url.hash ||
+      [...url.searchParams.keys()].some(key => /^(?:.*token|.*secret|password|code|state|api[_-]?key)$/i.test(key))) return;
+  const result = { reasonCode: data.reasonCode, title: data.title, steps: data.steps,
+    nextAction: { type: action.type, label: action.label, url: url.href } };
+  if (typeof data.traceId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(data.traceId)) result.traceId = data.traceId;
+  return JSON.stringify(result).length <= 8192 ? result : undefined;
+}
 export function failureKind(error) {
   const allowed = new Set(['Error', 'TypeError', 'ReferenceError', 'AbortError', 'OperationError',
     'SdkHttpError', 'OAuthError', 'RegistrationRejectedError', 'InvalidGrantError', 'AuthorizationServerMismatchError']);
