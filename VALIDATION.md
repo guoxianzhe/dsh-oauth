@@ -43,5 +43,23 @@ granted the new client access, JSON-RPC authorization guidance was incorrectly
 hidden behind a generic error. The alpha.3 patch preserves only bounded recovery
 fields and links to configured origins, excluding raw exception messages and
 unrelated data. Automated adapter tests cover the actual SDK ProtocolError path,
-foreign/credential-bearing links and exclusion of private fields. Desktop
-acceptance of this patch is recorded separately; alpha.2 evidence is not relabeled.
+foreign/credential-bearing links and exclusion of private fields. Alpha.3 Desktop acceptance is recorded below; alpha.2 evidence is not relabeled.
+
+
+## Alpha.3 Desktop acceptance
+
+Runtime tag `v0.1.0-alpha.3` points to
+`a29cfd09b9b713b130f189752601473984f4f4fc`.
+[CI checks](https://github.com/guoxianzhe/dsh-oauth/actions/runs/41457468157)
+passed with 13 automated tests, syntax checks, dependency audit (zero findings)
+and package dry-run.
+
+After explicit user confirmation, DSH Desktop 0.2.1-rc.2 installed the reviewed
+local alpha.3 sources through its GUI and performed a full Harness restart.
+The HTTPS configuration and stored credentials survived. Without another browser
+sign-in, status was connected and a real authorized business READ succeeded.
+A guide-only request for an ungranted service returned the expected authorization
+reason, title, three steps, a trusted-origin link and trace identifier. The link
+was not opened and no permissions were changed. No business WRITE was executed.
+Natural production-token expiry/refresh was not observed in this run; prior mock
+refresh results remain separate.
