@@ -10,27 +10,43 @@ export class OAuthConnection {
     this.credentials = credentials;
     this.key = credentialId(this.config);
     this.controller = new AbortController();
+    this.fetchImpl = fetchImpl;
     this.fetch = restrictedFetch(this.config, fetchImpl, this.controller.signal);
     this.client = undefined;
     this.pending = undefined;
+    this.loginGeneration = 0;
+    this.starting = false;
     this.status = 'disconnected';
+    this.phase = 'idle';
     this.onConnected = async () => {};
     this.onDisconnected = () => {};
   }
 
-  async transaction(operation) {
-    let result, failure;
+  async transaction(operation, signal = this.controller.signal) {
+    let result, failure, failedPhase;
+    this.phase = 'credential_lock';
     await this.credentials.modifyRecord(this.key, async current => {
       this.controller.signal.throwIfAborted();
+      signal.throwIfAborted();
       const data = structuredClone(current?.payload ?? {});
       const provider = this.provider(data);
       this.activeData = data;
-      try { result = await operation(provider, data); } catch (error) { failure = error; }
+      try { result = await operation(provider, data); } catch (error) { failure = error; failedPhase = this.phase; }
       finally { this.activeData = undefined; }
       this.controller.signal.throwIfAborted();
-      this.lastData = data;
-      return { kind: 'grant', payload: data };
+      signal.throwIfAborted();
+      // The SDK includes absent optional fields as undefined; DSH's credential
+      // backend accepts JSON values only. Keep exactly the JSON representation.
+      this.phase = 'storing_credentials';
+      const payload = JSON.parse(JSON.stringify(data, (_key, value) => {
+        if (typeof value === 'number' && !Number.isFinite(value)) throw new SafeError('Invalid OAuth state.');
+        return value;
+      }));
+      this.lastData = payload;
+      if (JSON.stringify(current?.payload ?? {}) === JSON.stringify(payload)) return undefined;
+      return { kind: 'grant', payload };
     });
+    this.phase = failedPhase ?? 'credentials_stored';
     if (failure) throw failure;
     return result;
   }
@@ -61,7 +77,7 @@ export class OAuthConnection {
       }; },
       state: () => { if (!attempt) throw new LoginRequired(); return attempt.state; },
       clientInformation: context => issuerMatches(data.client, context) ? data.client : undefined,
-      saveClientInformation: value => { data.client = value; },
+      saveClientInformation: value => { data.client = value; this.phase = 'client_registered'; },
       tokens: context => issuerMatches(data.tokens, context) ? data.tokens : undefined,
       saveTokens: value => {
         if (value.token_type?.toLowerCase() !== 'bearer') throw new SafeError('Only Bearer tokens are supported in this release.');
@@ -74,10 +90,11 @@ export class OAuthConnection {
         const allowed = new Set([new URL(config.url).origin, ...config.authorizationOrigins.map(v => new URL(v).origin)]);
         if (!allowed.has(parsed.origin) || url.username || url.password || url.hash) throw new SafeError('Untrusted authorization origin.');
         attempt.authorizationUrl = url.href;
+        this.phase = 'authorization_url_ready';
       },
-      saveCodeVerifier: value => { if (!attempt) throw new LoginRequired(); attempt.verifier = value; },
+      saveCodeVerifier: value => { if (!attempt) throw new LoginRequired(); attempt.verifier = value; this.phase = 'pkce_ready'; },
       codeVerifier: () => { if (!attempt?.verifier) throw new SafeError('Sign-in expired.'); return attempt.verifier; },
-      saveDiscoveryState: value => { data.discovery = value; },
+      saveDiscoveryState: value => { data.discovery = value; this.phase = 'discovery_complete'; },
       discoveryState: () => data.discovery,
       invalidateCredentials: scope => {
         if (scope === 'all' || scope === 'client') delete data.client;
@@ -93,9 +110,22 @@ export class OAuthConnection {
       if (!this.pending.authorizationUrl) throw new SafeError('A sign-in is already starting.');
       return { authorizationUrl: this.pending.authorizationUrl, finished: this.pending.finished };
     }
+    if (this.starting) throw new SafeError('A sign-in is already starting.');
+    this.starting = true;
+    const generation = this.loginGeneration;
+    try { return await this.prepareLogin(generation); }
+    finally { this.starting = false; }
+  }
+
+  async prepareLogin(generation) {
     await this.disconnect();
-    const callback = await loopback({ signal: this.controller.signal });
-    const attempt = { ...callback };
+    if (generation !== this.loginGeneration) throw new SafeError('Sign-in cancelled.');
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, this.controller.signal]);
+    const callback = await loopback({ signal });
+    if (generation !== this.loginGeneration) { callback.cancel(); throw new SafeError('Sign-in cancelled.'); }
+    const attempt = { ...callback, cancel: () => { controller.abort(); callback.cancel(); } };
+    const fetchFn = restrictedFetch(this.config, this.fetchImpl, signal);
     this.pending = attempt;
     this.status = 'authorizing';
     try {
@@ -104,18 +134,19 @@ export class OAuthConnection {
         delete data.client; delete data.discovery;
         data.redirectUrl = callback.redirectUrl;
         const provider = this.provider(data, attempt);
+        this.phase = 'oauth_discovery';
         await auth(provider, { serverUrl: this.config.url, scope: this.config.scope || undefined,
-          forceReauthorization: true, fetchFn: this.fetch });
+          forceReauthorization: true, fetchFn });
         if (!attempt.authorizationUrl) throw new SafeError('The server did not provide an interactive sign-in URL.');
-      });
+      }, signal);
       attempt.finished = (async () => {
         try {
           const { code, iss } = await callback.result;
           await this.transaction(async (_provider, data) => {
             if (this.pending !== attempt) throw new SafeError('Sign-in cancelled.');
             await auth(this.provider(data, attempt), { serverUrl: this.config.url, authorizationCode: code,
-              iss, scope: this.config.scope || undefined, fetchFn: this.fetch });
-          });
+              iss, scope: this.config.scope || undefined, fetchFn });
+          }, signal);
           if (this.pending !== attempt) throw new SafeError('Sign-in cancelled.');
           await this.connect();
         } finally {
@@ -126,7 +157,8 @@ export class OAuthConnection {
       attempt.finished.catch(() => { this.status = 'sign_in_failed'; });
       return { authorizationUrl: attempt.authorizationUrl, finished: attempt.finished };
     } catch (error) {
-      this.pending = undefined; callback.cancel(); this.status = 'sign_in_failed';
+      attempt.verifier = undefined;
+      this.pending = undefined; attempt.cancel(); this.status = 'sign_in_failed';
       throw error;
     }
   }
@@ -138,7 +170,7 @@ export class OAuthConnection {
       if (data.expiresAt !== undefined && data.expiresAt <= Date.now() + 30_000) {
         await auth(provider, { serverUrl: this.config.url, scope: this.config.scope || undefined, fetchFn: this.fetch });
       }
-      const client = new Client({ name: 'dsh-oauth', version: '0.1.0' });
+      const client = new Client({ name: 'dsh-oauth', version: '0.1.0-alpha.2' });
       const transport = new StreamableHTTPClientTransport(new URL(this.config.url), {
         authProvider: provider, fetch: this.fetch, onInsufficientScope: 'throw',
       });
@@ -173,6 +205,7 @@ export class OAuthConnection {
   }
 
   async logout() {
+    this.loginGeneration++;
     const pending = this.pending; this.pending = undefined;
     pending?.cancel(); await pending?.finished?.catch(() => {});
     await this.disconnect();
