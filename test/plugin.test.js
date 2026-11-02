@@ -39,6 +39,7 @@ test('DSH adapter loads with no network, saves configuration, authorizes and reg
     for (let i = 0; i < 100 && !tools.has('mcp__example__echo'); i++) await new Promise(resolve => setTimeout(resolve, 5));
     assert.equal((await tools.get('mcp__example__oauth_status').execute()).status, 'connected');
     assert.equal((await tools.get('mcp__example__echo').execute({ text: 'DSH adapter' }, { signal: new AbortController().signal })).content[0].text, 'DSH adapter');
+    await assert.rejects(tools.get('mcp__example__echo').execute({ text: 'request-guidance' }, { signal: new AbortController().signal }), /Authorize read scope.*fixture-receipt/);
     assert.equal(service.writes, 0);
     await tools.get('mcp__example__oauth_logout').execute();
     assert.equal(tools.size, 4);
