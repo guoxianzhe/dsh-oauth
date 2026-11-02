@@ -3,6 +3,11 @@
 Browser OAuth for remote MCP services in **DeepSeek Harness Desktop**.
 Independently maintained; not an official DeepSeek plugin.
 
+Package identity: `@guoxianzhe/dsh-oauth` (GitHub repository: `guoxianzhe/dsh-oauth`).
+Always install from the pinned GitHub source, not the unrelated npm package
+`dsh-oauth`. Candidate `v0.1.0-alpha.1` failed a Desktop cold-start test; do not use it.
+The fix is being validated as `v0.1.0-alpha.2`.
+
 Configure an MCP URL, sign in in your browser, and use the service's tools in DSH.
 No provider passwords or manually copied bearer tokens belong in plugin settings
 or chat. This project is generic: it contains no company deployment configuration.
