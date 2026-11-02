@@ -1,6 +1,6 @@
 /* Browser half: only non-secret configuration uses DSH's revisioned settings API. */
 window.__ModuleLoader__.load({
-  id: 'dsh-oauth',
+  id: '@guoxianzhe/dsh-oauth',
   factory(require) {
     const exports = {};
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
@@ -53,7 +53,7 @@ window.__ModuleLoader__.load({
           h('p', { role: 'status' }, message || (current.status === 'loading' ? '加载中…' : '')));
       }
       ctx.effect(() => ctx.slots.inject('plugins.bundle.config', () =>
-        ctx.slots.register({ name: 'plugins.bundle.config', key: 'dsh-oauth' }, Page)), 'dsh-oauth.settings-page');
+        ctx.slots.register({ name: 'plugins.bundle.config', key: '@guoxianzhe/dsh-oauth' }, Page)), 'dsh-oauth.settings-page');
     }
     exports.apply = apply;
     exports.inject = ['slots', 'configForms'];
