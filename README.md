@@ -99,6 +99,11 @@ Management tools:
 - `oauth_reconnect`: reconnect with existing credentials, without calling a business tool.
 - `oauth_logout`: disconnect and remove this plugin's local credential record.
 
+MCP application error content is returned to the chat as a failed tool result,
+including the service's guidance and receipts. OAuth/HTTP exception bodies are
+redacted. Choose trusted MCP services: their tool output is business data supplied
+to the model, not a secret-storage channel.
+
 On restart, the plugin reconnects with stored credentials. Expiring access tokens
 are refreshed under the credential store's record lock. Scope expansion requires
 a fresh user sign-in; it is not silently granted. Network-uncertain business calls
