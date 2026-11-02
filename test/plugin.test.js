@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { apply, toolName } from '../src/index.js';
+import { apply, Config, toolName } from '../src/index.js';
 import { fixture } from './support/mcp-fixture.js';
 
 test('DSH adapter loads with no network, saves configuration, authorizes and registers tools', async () => {
@@ -8,7 +8,10 @@ test('DSH adapter loads with no network, saves configuration, authorizes and reg
   const records = new Map(), tools = new Map(), flows = new Map(), handlers = new Map(), cleanups = [];
   const credentials = {
     readRecord: async key => records.get(key),
-    modifyRecord: async (key, change) => { const value = await change(records.get(key)); if (value) records.set(key, value); },
+    modifyRecord: async (key, change) => {
+      const value = await change(records.get(key));
+      if (value) { const json = JSON.parse(JSON.stringify(value)); assert.deepEqual(value, json); records.set(key, json); }
+    },
     deleteRecord: async key => { records.delete(key); },
   };
   const ctx = {
@@ -19,12 +22,14 @@ test('DSH adapter loads with no network, saves configuration, authorizes and reg
     inject(_services, callback) { callback(ctx); },
     on(event, callback) { handlers.set(event, callback); },
   };
-  const config = { serverName: 'example', url: '', scope: 'mcp', authorizationOrigins: [], allowInsecureLoopback: true };
+  const input = { serverName: 'example', url: '', scope: 'mcp', authorizationOrigins: [], allowInsecureLoopback: true };
+  const config = Config(input);
+  assert.equal(config.url.get(), '');
   try {
     await apply(ctx, config);
     assert.equal(tools.size, 4);
     assert.equal((await tools.get('mcp__example__oauth_status').execute()).status, 'not_configured');
-    config.url = service.base + '/mcp';
+    config.url = Config({ ...input, url: service.base + '/mcp' }).url;
     await handlers.get('settings/document-updated')();
     assert.equal(flows.size, 1);
     const login = await tools.get('mcp__example__oauth_login').execute();
