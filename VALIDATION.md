@@ -34,3 +34,14 @@ Web, and production MCP service authorization require separate acceptance.
 
 The earlier `alpha.1` failed a Desktop cold-start check. It is not recommended;
 its tag is retained rather than silently replaced.
+
+## Authorization guidance patch
+
+The alpha.2 runtime also completed browser sign-in, tool discovery, an authorized
+business READ and credential reconnect against a real deployment. Before the user
+granted the new client access, JSON-RPC authorization guidance was incorrectly
+hidden behind a generic error. The alpha.3 patch preserves only bounded recovery
+fields and links to configured origins, excluding raw exception messages and
+unrelated data. Automated adapter tests cover the actual SDK ProtocolError path,
+foreign/credential-bearing links and exclusion of private fields. Desktop
+acceptance of this patch is recorded separately; alpha.2 evidence is not relabeled.
