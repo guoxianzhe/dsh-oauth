@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import z from '@deepseek-ai/schemastery';
 import { OAuthConnection } from './oauth.js';
-import { credentialId, failureKind, SafeError } from './security.js';
+import { credentialId, failureKind, protocolGuidance, SafeError } from './security.js';
 
 export const name = 'dsh-oauth';
 export const inject = ['tools', 'credentials'];
@@ -53,6 +53,8 @@ function remoteDefinition(connection, serverName, tool) {
       }
       return result;
       } catch (error) {
+        const guidance = protocolGuidance(error, connection.config);
+        if (guidance) throw new SafeError(`MCP authorization guidance: ${JSON.stringify(guidance)}`);
         throw new SafeError(error instanceof SafeError ? error.message : 'MCP call failed. Its outcome may be unknown; inspect the original receipt before retrying a write.');
       }
     },
