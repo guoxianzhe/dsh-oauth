@@ -1,0 +1,6 @@
+- insert:
+    - id: dsh-oauth
+      name: dsh-oauth
+      config:
+        serverName: example
+        url: ""
