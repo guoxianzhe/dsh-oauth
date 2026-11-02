@@ -170,7 +170,7 @@ export class OAuthConnection {
       if (data.expiresAt !== undefined && data.expiresAt <= Date.now() + 30_000) {
         await auth(provider, { serverUrl: this.config.url, scope: this.config.scope || undefined, fetchFn: this.fetch });
       }
-      const client = new Client({ name: 'dsh-oauth', version: '0.1.0-alpha.2' });
+      const client = new Client({ name: 'dsh-oauth', version: '0.1.0-alpha.3' });
       const transport = new StreamableHTTPClientTransport(new URL(this.config.url), {
         authProvider: provider, fetch: this.fetch, onInsufficientScope: 'throw',
       });
