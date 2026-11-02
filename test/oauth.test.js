@@ -11,9 +11,14 @@ export function memoryCredentials() {
     records,
     readRecord: async key => structuredClone(records.get(key)),
     modifyRecord(key, change) {
+      assert.ok(key.split('/').length === 2 && key.split('/').every(part => /^[a-z][a-z0-9-]*$/.test(part)), 'DSH credential key grammar');
       const next = tail.then(async () => {
         const value = await change(structuredClone(records.get(key)));
-        if (value !== undefined) records.set(key, structuredClone(value));
+        if (value !== undefined) {
+          const json = JSON.parse(JSON.stringify(value));
+          assert.deepEqual(value, json, 'DSH credential records must be JSON round-trippable');
+          records.set(key, json);
+        }
       });
       tail = next.catch(() => {}); return next;
     },
@@ -125,6 +130,53 @@ test('bounded sign-in cancellation and credential partitioning', async () => {
   const config = { serverName: 'x', url: 'https://mcp.invalid/mcp', authorizationOrigins: [] };
   assert.notEqual(credentialId(config), credentialId({ ...config, scope: 'write' }));
   assert.notEqual(credentialId(config), credentialId({ ...config, authorizationOrigins: ['https://auth.invalid'] }));
+  for (let i = 0; i < 32; i++) assert.ok(credentialId({ ...config, scope: String(i) }).split('/').every(part => /^[a-z][a-z0-9-]*$/.test(part)));
+});
+
+test('parallel sign-in initialization creates one attempt only', async () => {
+  const f = await fixture();
+  const connection = new OAuthConnection({ serverName: 'single', url: f.base + '/mcp', scope: 'mcp', allowInsecureLoopback: true }, memoryCredentials());
+  try {
+    const results = await Promise.allSettled([connection.startLogin(), connection.startLogin()]);
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+    assert.match(results.find(result => result.status === 'rejected').reason.message, /already starting/);
+    await connection.logout();
+  } finally { await connection.dispose(); await f.close(); }
+});
+
+test('logout while initialization is opening cannot create a late sign-in', async () => {
+  const f = await fixture();
+  const credentials = memoryCredentials();
+  const connection = new OAuthConnection({ serverName: 'opening', url: f.base + '/mcp', scope: 'mcp', allowInsecureLoopback: true }, credentials);
+  try {
+    const starting = connection.startLogin();
+    const rejected = assert.rejects(starting, /cancelled/);
+    await connection.logout();
+    await rejected;
+    assert.equal(connection.pending, undefined);
+    assert.equal(await credentials.readRecord(connection.key), undefined);
+  } finally { await connection.dispose(); await f.close(); }
+});
+
+test('cancellation during code exchange cannot persist a late credential', async () => {
+  let entered, release;
+  const tokenEntered = new Promise(resolve => { entered = resolve; });
+  const hold = new Promise(resolve => { release = resolve; });
+  const f = await fixture({ beforeTokenResponse: async () => { entered(); await hold; } });
+  const credentials = memoryCredentials();
+  const connection = new OAuthConnection({ serverName: 'late', url: f.base + '/mcp', scope: 'mcp', allowInsecureLoopback: true }, credentials);
+  try {
+    const login = await connection.startLogin();
+    const response = await fetch(login.authorizationUrl, { redirect: 'manual' });
+    await fetch(response.headers.get('location'));
+    await tokenEntered;
+    await connection.logout();
+    release();
+    await assert.rejects(login.finished, /abort|cancel/i);
+    assert.equal(await credentials.readRecord(connection.key), undefined);
+    assert.equal(connection.status, 'signed_out');
+    assert.equal(f.writes, 0);
+  } finally { release(); await connection.dispose(); await f.close(); }
 });
 
 test('rejects HTTP, credential URLs, untrusted discovery and redirected credential requests', async () => {
