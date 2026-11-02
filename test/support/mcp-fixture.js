@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 
-export async function fixture() {
+export async function fixture(options = {}) {
   const clients = new Map(), codes = new Map();
   let base, refreshes = 0, writes = 0;
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, base);
+    options.onRequest?.({ method: req.method, path: url.pathname });
     const send = (status, data, headers = {}) => {
       res.writeHead(status, { 'content-type': 'application/json', ...headers });
       res.end(JSON.stringify(data));
@@ -50,7 +51,8 @@ export async function fixture() {
       } else {
         assert.equal(p.get('refresh_token'), `refresh-${refreshes}`); refreshes++;
       }
-      return send(200, { access_token: `access-${refreshes}`, refresh_token: `refresh-${refreshes}`, expires_in: 3600, token_type: 'Bearer', scope: 'mcp' });
+      await options.beforeTokenResponse?.();
+      return send(200, { access_token: `access-${refreshes}`, refresh_token: `refresh-${refreshes}`, expires_in: options.tokenTTL ?? 3600, token_type: 'Bearer', scope: 'mcp' });
     }
     if (url.pathname === '/mcp') {
       if (req.headers.authorization !== `Bearer access-${refreshes}`) return send(401, { error: 'unauthorized' }, {
@@ -70,7 +72,7 @@ export async function fixture() {
     }
     return send(404, {});
   });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise(resolve => server.listen(options.port ?? 0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
   return { base, get refreshes() { return refreshes; }, get writes() { return writes; },
     close: () => { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); } };
